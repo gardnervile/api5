@@ -22,11 +22,9 @@ def predict_rub_salary(vacancy):
     return None
 
 
-def fetch_vacancies(lang, area=1, max_pages=20):
+def fetch_hh_vacancies(lang, area=1, max_pages=20):
     vacancies = []
-    page = 0
-
-    while page < max_pages:
+    for page in range(max_pages):
         url = f"https://api.hh.ru/vacancies?text={lang}&area={area}&per_page=100&page={page}"
         response = requests.get(url).json()
 
@@ -38,7 +36,6 @@ def fetch_vacancies(lang, area=1, max_pages=20):
         if not items:
             break
 
-        page += 1
         time.sleep(0.5)
 
     return vacancies
@@ -46,11 +43,10 @@ def fetch_vacancies(lang, area=1, max_pages=20):
 
 def fetch_sj_vacancies(lang, area=1, max_pages=20):
     vacancies = []
-    page = 0
+    headers = {'X-Api-App-Id': os.getenv("SUPERJOB_API_KEY")}
 
-    while page < max_pages:
+    for page in range(max_pages):
         url = f"https://api.superjob.ru/2.0/vacancies/?keyword={lang}&town={area}&page={page}"
-        headers = {'X-Api-App-Id': os.getenv("SUPERJOB_API_KEY")}  # Ключ из переменной окружения
         response = requests.get(url, headers=headers).json()
 
         items = response.get("objects", [])
@@ -61,36 +57,37 @@ def fetch_sj_vacancies(lang, area=1, max_pages=20):
         if not items:
             break
 
-        page += 1
         time.sleep(0.5)
 
     return vacancies
 
 
-def get_language_salary_stats(languages, area=1, site='hh', max_pages=20):
+def fetch_all_vacancies(lang, site, area=1, max_pages=20):
+    if site == 'hh':
+        return fetch_hh_vacancies(lang, area, max_pages)
+    elif site == 'sj':
+        return fetch_sj_vacancies(lang, area, max_pages)
+    return []
+
+
+def get_language_salary_stats(languages, site, area=1, max_pages=20):
     stats = {}
 
     for lang in languages:
-        print(f"Обрабатываю {lang}...")
-        if site == 'hh':
-            vacancies = fetch_vacancies(lang, area, max_pages)
-        elif site == 'sj':
-            vacancies = fetch_sj_vacancies(lang, area, max_pages)
+        print(f"Обрабатываю {lang} на {site}...")
+        vacancies = fetch_all_vacancies(lang, site, area, max_pages)
 
-        vacancies_found = len(vacancies)
         salaries = [predict_rub_salary(vac) for vac in vacancies]
         salaries = [int(s) for s in salaries if s is not None]
-
-        vacancies_processed = len(salaries)
-        average_salary = int(sum(salaries) / vacancies_processed) if vacancies_processed > 0 else None
-
+        
         stats[lang] = {
-            "vacancies_found": vacancies_found,
-            "vacancies_processed": vacancies_processed,
-            "average_salary": average_salary
+            "vacancies_found": len(vacancies),
+            "vacancies_processed": len(salaries),
+            "average_salary": int(sum(salaries) / len(salaries)) if salaries else None
         }
 
     return stats
+
 
 def print_table(stats, site):
     table_data = []
