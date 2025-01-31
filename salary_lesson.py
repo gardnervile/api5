@@ -1,5 +1,6 @@
 import os
 import time
+import urllib.parse
 import requests
 from dotenv import load_dotenv
 from terminaltables import AsciiTable
@@ -24,8 +25,16 @@ def predict_rub_salary(vacancy):
 
 def fetch_hh_vacancies(lang, area=1, max_pages=20):
     vacancies = []
+    base_url = "https://api.hh.ru/vacancies"
+
     for page in range(max_pages):
-        url = f"https://api.hh.ru/vacancies?text={lang}&area={area}&per_page=100&page={page}"
+        params = {
+            "text": lang,
+            "area": area,
+            "per_page": 100,
+            "page": page
+        }
+        url = f"{base_url}?{urllib.parse.urlencode(params)}"
         response = requests.get(url).json()
 
         items = response.get("items", [])
@@ -43,10 +52,16 @@ def fetch_hh_vacancies(lang, area=1, max_pages=20):
 
 def fetch_sj_vacancies(lang, area=1, max_pages=20):
     vacancies = []
+    base_url = "https://api.superjob.ru/2.0/vacancies/"
     headers = {'X-Api-App-Id': os.getenv("SUPERJOB_API_KEY")}
 
     for page in range(max_pages):
-        url = f"https://api.superjob.ru/2.0/vacancies/?keyword={lang}&town={area}&page={page}"
+        params = {
+            "keyword": lang,
+            "town": area,
+            "page": page
+        }
+        url = f"{base_url}?{urllib.parse.urlencode(params)}"
         response = requests.get(url, headers=headers).json()
 
         items = response.get("objects", [])
@@ -104,13 +119,13 @@ def print_table(stats, site):
     table = AsciiTable(table_data)
     print(table.table)
 
+
 def main():
     load_dotenv()
 
     languages = ["Python", "Java", "Javascript", "C++", "C#", "Go", "Swift", "Kotlin", "Ruby", "PHP"]
 
     hh_stats = get_language_salary_stats(languages, site='hh', max_pages=20)
-
     sj_stats = get_language_salary_stats(languages, site='sj', max_pages=20)
 
     print_table(hh_stats, "HeadHunter")
