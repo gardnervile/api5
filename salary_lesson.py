@@ -1,25 +1,23 @@
 import os
 import time
-import urllib.parse
 import requests
 from dotenv import load_dotenv
 from terminaltables import AsciiTable
 
 
-def predict_rub_salary(vacancy):
-    if "salary" in vacancy:
-        salary = vacancy["salary"]
-        if not salary or salary.get("currency") != "RUR":
-            return None
-        salary_from = salary.get("from")
-        salary_to = salary.get("to")
-    else:
-        salary_from = vacancy.get("payment_from")
-        salary_to = vacancy.get("payment_to")
-        currency = vacancy.get("currency")
-        if currency != "rub":
-            return None
+def extract_hh_salary(salary):
+    if not salary or salary.get("currency") != "RUR":
+        return None
+    return salary.get("from"), salary.get("to")
 
+
+def extract_sj_salary(vacancy):
+    if vacancy.get("currency") != "rub":
+        return None
+    return vacancy.get("payment_from"), vacancy.get("payment_to")
+
+
+def calculate_average_salary(salary_from, salary_to):
     if salary_from and salary_to:
         return (salary_from + salary_to) / 2
     elif salary_from:
@@ -28,6 +26,10 @@ def predict_rub_salary(vacancy):
         return salary_to * 0.8
     return None
 
+
+def predict_rub_salary(vacancy):
+    salary_data = extract_hh_salary(vacancy["salary"]) if "salary" in vacancy else extract_sj_salary(vacancy)
+    return calculate_average_salary(*salary_data) if salary_data else None
 
 
 def fetch_hh_vacancies(lang, area=1):
@@ -41,40 +43,35 @@ def fetch_hh_vacancies(lang, area=1):
         "page": 0
     }
 
-    try:
-        response = requests.get(f"{base_url}?{urllib.parse.urlencode(params)}")
+    response = requests.get(base_url, params=params)
+    response.raise_for_status()
+    decoded_response = response.json()
+
+    if 'error' in decoded_response:
+        raise requests.exceptions.HTTPError(decoded_response['error'])
+
+    total_pages = decoded_response.get("pages", 1)
+    total_vacancies = decoded_response.get("found", 0)
+    vacancies.extend(decoded_response.get("items", []))
+
+    for page in range(1, total_pages):
+        params["page"] = page
+        response = requests.get(base_url, params=params)
         response.raise_for_status()
         decoded_response = response.json()
 
         if 'error' in decoded_response:
             raise requests.exceptions.HTTPError(decoded_response['error'])
 
-        total_pages = decoded_response.get("pages", 1)
-        total_vacancies = decoded_response.get("found", 0)
+        hh_vacancy_items = decoded_response.get("items", [])
+        vacancies.extend(hh_vacancy_items)
 
-        for page in range(total_pages):
-            params["page"] = page
-            url = f"{base_url}?{urllib.parse.urlencode(params)}"
+        print(f"Загружено {len(hh_vacancy_items)} вакансий для {lang} (страница {page + 1} из {total_pages})")
 
-            response = requests.get(url)
-            response.raise_for_status()
-            decoded_response = response.json()
+        if not hh_vacancy_items:
+            break
 
-            if 'error' in decoded_response:
-                raise requests.exceptions.HTTPError(decoded_response['error'])
-
-            hh_vacancy_items = decoded_response.get("items", [])
-            vacancies.extend(hh_vacancy_items)
-
-            print(f"Загружено {len(hh_vacancy_items)} вакансий для {lang} (страница {page + 1} из {total_pages})")
-
-            if not hh_vacancy_items:
-                break
-
-            time.sleep(0.5)
-
-    except requests.exceptions.RequestException as e:
-        print(f"Ошибка при загрузке вакансий с HH: {e}")
+        time.sleep(0.5)
 
     return vacancies, total_vacancies
 
@@ -90,50 +87,25 @@ def fetch_sj_vacancies(lang, area=1, headers=None):
         "count": 100
     }
 
-    try:
-        response = requests.get(f"{base_url}?{urllib.parse.urlencode(params)}", headers=headers)
+    while True:
+        response = requests.get(base_url, params=params, headers=headers)
         response.raise_for_status()
         decoded_response = response.json()
 
         if 'error' in decoded_response:
             raise requests.exceptions.HTTPError(decoded_response['error'])
 
-        total_vacancies = decoded_response.get("total", 0)
-        total_pages = (total_vacancies // params["count"]) + (1 if total_vacancies % params["count"] else 0)
+        vacancies.extend(decoded_response.get("objects", []))
 
-        for page in range(total_pages):
-            params["page"] = page
-            url = f"{base_url}?{urllib.parse.urlencode(params)}"
+        print(f"Загружено {len(decoded_response.get('objects', []))} вакансий для {lang} (страница {params['page'] + 1})")
 
-            response = requests.get(url, headers=headers)
-            response.raise_for_status()
-            decoded_response = response.json()
+        if not decoded_response.get("more"):
+            break
 
-            if 'error' in decoded_response:
-                raise requests.exceptions.HTTPError(decoded_response['error'])
+        params["page"] += 1
+        time.sleep(0.5)
 
-            js_vacancy_items = decoded_response.get("objects", [])
-            vacancies.extend(js_vacancy_items)
-
-            print(f"Загружено {len(js_vacancy_items)} вакансий для {lang} (страница {page + 1} из {total_pages})")
-
-            if not js_vacancy_items:
-                break
-
-            time.sleep(0.5)
-
-    except requests.exceptions.RequestException as e:
-        print(f"Ошибка при загрузке вакансий с SuperJob: {e}")
-
-    return vacancies, total_vacancies
-
-
-def fetch_all_vacancies(lang, site, area=1, headers=None):
-    if site == 'hh':
-        return fetch_hh_vacancies(lang, area)
-    elif site == 'sj':
-        return fetch_sj_vacancies(lang, area, headers)
-    return [], 0
+    return vacancies, decoded_response.get("total", 0)
 
 
 def get_language_salary_stats(languages, site, area=1, headers=None):
@@ -141,11 +113,17 @@ def get_language_salary_stats(languages, site, area=1, headers=None):
 
     for lang in languages:
         print(f"Обрабатываю {lang} на {site}...")
-        vacancies, total_vacancies = fetch_all_vacancies(lang, site, area, headers)
+
+        if site == 'hh':
+            vacancies, total_vacancies = fetch_hh_vacancies(lang, area)
+        elif site == 'sj':
+            vacancies, total_vacancies = fetch_sj_vacancies(lang, area, headers)
+        else:
+            continue
 
         salaries = [predict_rub_salary(vac) for vac in vacancies]
         salaries = [int(s) for s in salaries if s]
-        
+
         stats[lang] = {
             "vacancies_found": total_vacancies,
             "vacancies_processed": len(salaries),
