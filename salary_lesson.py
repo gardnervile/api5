@@ -17,6 +17,10 @@ def extract_sj_salary(vacancy):
     return vacancy.get("payment_from"), vacancy.get("payment_to")
 
 
+def extract_salary(vacancy):
+    return extract_hh_salary(vacancy["salary"]) if "salary" in vacancy else extract_sj_salary(vacancy)
+
+
 def calculate_average_salary(salary_from, salary_to):
     if salary_from and salary_to:
         return (salary_from + salary_to) / 2
@@ -28,7 +32,7 @@ def calculate_average_salary(salary_from, salary_to):
 
 
 def predict_rub_salary(vacancy):
-    salary_data = extract_hh_salary(vacancy["salary"]) if "salary" in vacancy else extract_sj_salary(vacancy)
+    salary_data = extract_salary(vacancy)
     return calculate_average_salary(*salary_data) if salary_data else None
 
 
@@ -50,11 +54,10 @@ def fetch_hh_vacancies(lang, area=1):
     if 'error' in decoded_response:
         raise requests.exceptions.HTTPError(decoded_response['error'])
 
-    total_pages = decoded_response.get("pages", 1)
     total_vacancies = decoded_response.get("found", 0)
     vacancies.extend(decoded_response.get("items", []))
 
-    for page in range(1, total_pages):
+    for page in range(1, decoded_response.get("pages", 1)):
         params["page"] = page
         response = requests.get(base_url, params=params)
         response.raise_for_status()
@@ -66,7 +69,7 @@ def fetch_hh_vacancies(lang, area=1):
         hh_vacancy_items = decoded_response.get("items", [])
         vacancies.extend(hh_vacancy_items)
 
-        print(f"Загружено {len(hh_vacancy_items)} вакансий для {lang} (страница {page + 1} из {total_pages})")
+        print(f"Загружено {len(hh_vacancy_items)} вакансий для {lang} (страница {page + 1})")
 
         if not hh_vacancy_items:
             break
@@ -108,18 +111,21 @@ def fetch_sj_vacancies(lang, area=1, headers=None):
     return vacancies, decoded_response.get("total", 0)
 
 
+def get_vacancies(site, lang, area, headers):
+    if site == 'hh':
+        return fetch_hh_vacancies(lang, area)
+    if site == 'sj':
+        return fetch_sj_vacancies(lang, area, headers)
+    return [], 0
+
+
 def get_language_salary_stats(languages, site, area=1, headers=None):
     stats = {}
 
     for lang in languages:
         print(f"Обрабатываю {lang} на {site}...")
 
-        if site == 'hh':
-            vacancies, total_vacancies = fetch_hh_vacancies(lang, area)
-        elif site == 'sj':
-            vacancies, total_vacancies = fetch_sj_vacancies(lang, area, headers)
-        else:
-            continue
+        vacancies, total_vacancies = get_vacancies(site, lang, area, headers)
 
         salaries = [predict_rub_salary(vac) for vac in vacancies]
         salaries = [int(s) for s in salaries if s]
@@ -134,9 +140,8 @@ def get_language_salary_stats(languages, site, area=1, headers=None):
 
 
 def print_table(stats, site):
-    table_data = []
-    table_data.append([f'{site} Moscow', 'Вакансий найдено', 'Обработано вакансий', 'Средняя зарплата'])
-    
+    table_data = [["Язык", "Вакансий найдено", "Обработано", "Средняя зарплата"]]
+
     for lang, data in stats.items():
         table_data.append([
             lang,
@@ -145,7 +150,7 @@ def print_table(stats, site):
             data["average_salary"] if data["average_salary"] else "Нет данных"
         ])
 
-    table = AsciiTable(table_data)
+    table = AsciiTable([[f"{site} Moscow"] + table_data[0]] + table_data[1:])
     print(table.table)
 
 
