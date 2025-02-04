@@ -142,12 +142,12 @@ def get_language_salary_stats(languages, site, area=1, headers=None):
 def print_table(stats, site):
     table_data = [["Язык", "Вакансий найдено", "Обработано", "Средняя зарплата"]]
 
-    for lang, data in stats.items():
+    for language, salary_info in stats.items():
         table_data.append([
-            lang,
-            data["vacancies_found"],
-            data["vacancies_processed"],
-            data["average_salary"] if data["average_salary"] else "Нет данных"
+            language,
+            salary_info["vacancies_found"],
+            salary_info["vacancies_processed"],
+            salary_info["average_salary"] if salary_info["average_salary"] else "Нет данных"
         ])
 
     table = AsciiTable([[f"{site} Moscow"] + table_data[0]] + table_data[1:])
