@@ -129,8 +129,11 @@ def get_language_salary_stats(languages, site, area=1, headers=None):
 
         vacancies, total_vacancies = get_vacancies(site, lang, area, headers)
 
-        salaries = [predict_rub_salary(vac) for vac in vacancies]
-        salaries = [int(s) for s in salaries if s]
+        salaries = []
+        for vacancy in vacancies:
+            salary = predict_rub_salary(vacancy)
+            if salary:
+                salaries.append(int(salary))
 
         stats[lang] = {
             "vacancies_found": total_vacancies,
