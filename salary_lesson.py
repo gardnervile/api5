@@ -112,11 +112,13 @@ def fetch_sj_vacancies(lang, area=1, headers=None):
 
 
 def get_vacancies(site, lang, area, headers):
-    if site == 'hh':
-        return fetch_hh_vacancies(lang, area)
-    if site == 'sj':
-        return fetch_sj_vacancies(lang, area, headers)
-    return [], 0
+    fetch_functions = {
+        "hh": fetch_hh_vacancies,
+        "sj": lambda lang, area: fetch_sj_vacancies(lang, area, headers)
+    }
+    
+    fetch_function = fetch_functions.get(site, lambda *args: ([], 0))
+    return fetch_function(lang, area)
 
 
 def get_language_salary_stats(languages, site, area=1, headers=None):
